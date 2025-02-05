@@ -14,7 +14,7 @@ for i in range(1, 211):
         for file_name in os.listdir(folder_path):
             if file_name.endswith(".nii.gz"):
                 gz_file_path = os.path.join(folder_path, file_name)
-                nii_file_path = os.path.join(folder_path, file_name.replace(".gz", ""))
+                nii_file_path = os.path.join(folder_path, file_name.replace(".gz", ""))# 生成路径
 
                 # 解压缩 .nii.gz 文件
                 with gzip.open(gz_file_path, "rb") as f_in:

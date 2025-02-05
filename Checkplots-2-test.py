@@ -6,11 +6,41 @@ import numpy as np
 import matplotlib.pyplot as plt #图像处理
 import cv2
 
+# 在 nibabel 读取 .nii 文件时，默认数据类型通常是 float64，
+# 而肿瘤区域的标注数据 (seg.nii) 可能是 0（背景）和 1（肿瘤）。
+# 但是 cv2.imwrite() 需要的数据范围是 0-255 的整数 (uint8)，
+# 如果数据是 float64 的 0 和 1，cv2.imwrite() 可能会把 1 也当作 0，
+# 从而导致全黑图片。
+
+
 def save_slices(slices, paths):
     for img_slice, path in zip(slices, paths):
+        # img_slice = normalize_to_uint8(img_slice)  # 归一化并转换
+        img_slice = contrast_stretching(img_slice)  # 拉伸对比度
         cv2.imwrite(path, img_slice)
 
-        
+def contrast_stretching(img_slice):
+    # 将图像拉伸到 0-255 范围
+    stretched_slice = cv2.normalize(img_slice, None, 0, 255, cv2.NORM_MINMAX)
+    return stretched_slice.astype(np.uint8)
+
+# 归一化 I-Imin / Imax-Imin * 255 ，
+def normalize_to_uint8(img_slice):
+    # 找到最小值和最大值
+    min_val = np.min(img_slice)
+    max_val = np.max(img_slice)
+    # 防止除以 0 的问题
+    if max_val - min_val == 0:
+        return np.zeros_like(img_slice, dtype=np.uint8)
+    # 归一化到 0-1，然后映射到 0-255
+    norm_slice = (img_slice - min_val) / (max_val - min_val)
+    return (norm_slice * 255).astype(np.uint8)
+
+def show_slices(slices):
+   """ 显示一行图像切片 """
+   fig, axes = plt.subplots(1, len(slices))
+   for i, slice in enumerate(slices):
+       axes[i].imshow(slice.T, cmap="gray", origin="lower")       
 
 def show_pictures(img_fla_data, img_seg_data, i):
     img_flat_slice_0 = img_fla_data[120, :, :]  # 冠状面（YZ） 固定x=120 yz任意，因为图片240，240，155
@@ -29,7 +59,7 @@ def show_pictures(img_fla_data, img_seg_data, i):
     ]
     save_slices([img_flat_slice_0, img_flat_slice_1, img_flat_slice_2], fla_save_paths)
     # 显示图片（可选）
-    # plt.show()
+    
 
     # 获得三个维度的切片(seg)
     img_seg_slice_0 = img_seg_data[120, :, :]
@@ -43,8 +73,12 @@ def show_pictures(img_fla_data, img_seg_data, i):
         f"{seg_path}/seg_{i}_(XZ).png",
         f"{seg_path}/seg_{i}_(XY).png"
     ]
+    # show_slices([img_seg_slice_0, img_seg_slice_1, img_seg_slice_2])
+    # plt.show()
     save_slices([img_seg_slice_0, img_seg_slice_1, img_seg_slice_2], seg_save_paths)
 
+
+    
 path = "./dataset_segmentation/train" # 训练集路径
 for i in range(1,211):
     folder_name = f"{i:03d}" # 生成 '001', '002', ..., '210'
