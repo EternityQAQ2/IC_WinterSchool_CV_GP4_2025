@@ -1,8 +1,9 @@
 import os
 import gzip
 import shutil
+# 第一次接触NII文件，下意识地以为需要解压，后来发现不需要。。。。就这样吧QWQ
+# 定义数据集的主目录 
 
-# 定义数据集的主目录
 base_dir = "./dataset_segmentation/train"  # 修改为你的数据路径
 
 # 遍历 001 到 210 号文件夹
