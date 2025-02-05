@@ -43,9 +43,9 @@ def show_slices(slices):
        axes[i].imshow(slice.T, cmap="gray", origin="lower")       
 
 def show_pictures(img_fla_data, img_seg_data, i):
-    img_flat_slice_0 = img_fla_data[120, :, :]  # 冠状面（YZ） 固定x=120 yz任意，因为图片240，240，155
-    img_flat_slice_1 = img_fla_data[:, 120, :]  # 矢状面（XZ）
-    img_flat_slice_2 = img_fla_data[:, :, 78]   # 轴状面（XY）
+    img_flat_slice_0 = np.fliplr(np.rot90(img_fla_data[120, :, :],1))  # 冠状面（YZ） 固定x=120 yz任意，因为图片240，240，155。顺时针旋转90度反转
+    img_flat_slice_1 = np.fliplr(np.rot90(img_fla_data[:, 120, :],1))  # 矢状面（XZ） 顺时针旋转90度并左右翻转
+    img_flat_slice_2 = np.rot90(img_fla_data[:, :, 78],3)   # 轴状面（XY） 顺时针旋转270度
 
     # 创建保存路径
     fla_path = f"./fla_slices/{i}"
@@ -62,9 +62,9 @@ def show_pictures(img_fla_data, img_seg_data, i):
     
 
     # 获得三个维度的切片(seg)
-    img_seg_slice_0 = img_seg_data[120, :, :]
-    img_seg_slice_1 = img_seg_data[:, 120, :]
-    img_seg_slice_2 = img_seg_data[:, :, 78]
+    img_seg_slice_0 = np.fliplr(np.rot90(img_seg_data[120, :, :],1)) #顺时针旋转90度
+    img_seg_slice_1 = np.fliplr(np.rot90(img_seg_data[:, 120, :],1)) #顺时针旋转90度并左右翻转
+    img_seg_slice_2 = np.rot90(img_seg_data[:, :, 78],3) #顺时针旋转270度
 
     seg_path = f"./seg_slices/{i}"
     os.makedirs(seg_path, exist_ok=True)  # 确保目录存在
