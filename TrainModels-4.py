@@ -1,3 +1,4 @@
+
 # 训练CNN模型 -3 
 import os
 import cv2
@@ -9,129 +10,147 @@ import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
+# 定义统一的目标尺寸
+TARGET_SIZE = (240, 240)  # 根据需求调整
+
 # 之前使用的是cv2的归一化，不可以用。
 Transform_IC = transforms.Compose([
     transforms.ToPILImage(),   # OpenCV → PIL（自动 BGR→RGB）
+    transforms.Resize(TARGET_SIZE),  # 调整尺寸（保持比例）
+    transforms.CenterCrop(TARGET_SIZE),  # 中心裁剪（可选）
     transforms.ToTensor(),     # 归一化到 [0,1]，并转换为 Tensor 张量 
 ])
+# 单独定义分割标签的转换
+Transform_SEG = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize(TARGET_SIZE, interpolation=Image.NEAREST),  # 最近邻插值
+    transforms.CenterCrop(TARGET_SIZE),
+    transforms.ToTensor(),
+])
+
 def visualize_images(fla_images, seg_images):
     """
     用于显示输入图像（fla_images）和分割图像（seg_images）.
     假设每个输入图像是一个包含三个通道的图像，分割图像是单通道图像.
     """
-    # 设置图像的子图
     fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-
-    # 显示 fla_images（三个视图）
     for i in range(3):
-        axes[0, i].imshow(fla_images[i].permute(1, 2, 0))  # permute 是为了从 [C, H, W] 转到 [H, W, C]
+        axes[0, i].imshow(fla_images[i].permute(1, 2, 0))
         axes[0, i].axis('off')
         axes[0, i].set_title(f"Flair Image {i + 1}")
-
-    # 显示 seg_images（三个分割图像）
     for i in range(3):
-        axes[1, i].imshow(seg_images[i].permute(1, 2, 0), cmap="gray")  # 灰度图像
+        axes[1, i].imshow(seg_images[i].permute(1, 2, 0), cmap="gray")
         axes[1, i].axis('off')
         axes[1, i].set_title(f"Segmentation {i + 1}")
-
     plt.tight_layout()
     plt.show()
 
-
 class TumorDataSet(Dataset):
-    def __init__(self,fla_dir,seg_dir,transform=Transform_IC):
+    def __init__(self, fla_dir, seg_dir, fla_transform=Transform_IC, seg_transform=Transform_SEG):
         self.fla_dir = fla_dir
         self.seg_dir = seg_dir
-        self.transform = transform
-        # 获取所有病人 ID（确保排序一致）
-        self.folder_ids = sorted(os.listdir(fla_dir), key=lambda x: int(x))
+        self.fla_transform = fla_transform
+        self.seg_transform = seg_transform
+        # 按数字排序病人文件夹
+        self.folder_ids = sorted(
+            [f for f in os.listdir(fla_dir) if f.isdigit()],
+            key=lambda x: int(x)
+        )
     
     def __len__(self):
-        return len(self.folder_ids) # 返回病人数量
+        return len(self.folder_ids)
     
-    def __getitem__(self,idx):
-        folder_id = self.folder_ids[idx] # 获取病人 ID
+    def __getitem__(self, idx):
+        folder_id = self.folder_ids[idx]
         fla_path = os.path.join(self.fla_dir, folder_id)
         seg_path = os.path.join(self.seg_dir, folder_id)
-        # 读取大脑三视图
-        fla_images_Idx = sorted(os.listdir(fla_path)) # 1.png, 2.png,3.png
-        seg_images_Idx = sorted(os.listdir(seg_path)) # 1.png, 2.png,3.png
 
+        # 读取并排序文件名（保持原排序）
+        fla_images_Idx = sorted(os.listdir(fla_path))
+        seg_images_Idx = sorted(os.listdir(seg_path))
+
+        # 读取并调整尺寸
         fla_images = []
-        for img_name in fla_images_Idx:
-            img_path = os.path.join(fla_path, img_name)
-            img = cv2.imread(img_path,cv2.IMREAD_COLOR) # BGR 格式
-            if self.transform:
-                img = self.transform(img)  # 输入是 numpy 数组，自动触发 ToPILImage()
-            fla_images.append(img) # 添加其中
-
         seg_images = []
-        for img_name in seg_images_Idx:
-            img_path = os.path.join(seg_path, img_name)
-            img = cv2.imread(img_path,cv2.IMREAD_COLOR)
-            if self.transform:
-                img = self.transform(img)
-            seg_images.append(img)
+        for fla_name, seg_name in zip(fla_images_Idx, seg_images_Idx):
+            # 处理 FLA 图像
+            fla_img = cv2.imread(os.path.join(fla_path, fla_name), cv2.IMREAD_COLOR)
+            fla_img = self.fla_transform(fla_img)
+            fla_images.append(fla_img)
+            
+            # 处理 SEG 标签
+            seg_img = cv2.imread(os.path.join(seg_path, seg_name), cv2.IMREAD_GRAYSCALE)
+            seg_img = (seg_img > 127).astype(np.uint8)  # 二值化
+            seg_img = self.seg_transform(seg_img)
+            seg_images.append(seg_img)
 
-        return fla_images,seg_images # 返回大脑三视图和分割图
+        return torch.stack(fla_images), torch.stack(seg_images)
+
 class UnetCNN(nn.Module):
-    def __init__(self,in_channels=3,out_channels=1): 
-        super(UnetCNN, self).__init__() 
+    def __init__(self, in_channels=3, out_channels=1):
+        super(UnetCNN, self).__init__()
+        # 编码器
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
             nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(2)
         )
+        # 解码器
         self.decoder = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
             nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, out_channels, kernel_size=1)  # 输出通道数由任务决定
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, out_channels, kernel_size=1),
+            nn.Sigmoid()  # 输出概率图
         )
+    
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
 
-
 def main():
-    fla_dir = "./train_data/fla"
-    seg_dir = "./train_data/seg"
-    DatasetTrain = TumorDataSet(fla_dir, seg_dir)
-    dataloader = torch.utils.data.DataLoader(DatasetTrain, batch_size=4, shuffle=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
 
-    # 测试代码
-    # fla_images,seg_images = DatasetTrain.__getitem__(1)
-    # 打印样本信息，确认数据加载是否正常
-    # print(f"Number of flair images: {len(fla_images)}")
-    # print(f"Number of segmentation images: {len(seg_images)}")
-    # visualize_images(fla_images, seg_images)
+    # 初始化数据集和数据加载器
+    dataset = TumorDataSet(fla_dir="./train_data/fla", seg_dir="./train_data/seg")
+    # 检查第一个样本
+    fla, seg = dataset[0]
+    print("FLA 图像尺寸:", fla.shape)  # 应为 [3, 3, 240, 240]
+    print("SEG 标签尺寸:", seg.shape)  # 应为 [3, 1, 240, 240]
 
-    modeltest = UnetCNN(1,1)
+    dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
-    # 定义损失函数 & 优化器
-    criterion = nn.BCELoss()  # 二分类交叉熵损失（适用于 Mask 预测）
-    optimizer = optim.Adam(modeltest.parameters(), lr=0.001)
+    # 初始化模型
+    model = UnetCNN(in_channels=3, out_channels=1).to(device)
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-    # 训练 U-Net
+    # 训练循环
     num_epochs = 10
     for epoch in range(num_epochs):
-        for fla, seg in dataloader:
-            fla, seg = fla.to("cuda"), seg.to("cuda")  # 送入 GPU
+        model.train()
+        epoch_loss = 0.0
+        for batch_idx, (fla_batch, seg_batch) in enumerate(dataloader):
+            # 数据处理、模型前向传播和反向传播
             optimizer.zero_grad()
-            outputs = modeltest(fla)
-            loss = criterion(outputs, seg)
+            outputs = model(fla_batch.view(-1, *fla_batch.shape[2:]).to(device))
+            loss = criterion(outputs, seg_batch.view(-1, *seg_batch.shape[2:]).to(device))
             loss.backward()
             optimizer.step()
-        print(f"Epoch {epoch+1}, Loss: {loss.item()}")
-
+            epoch_loss += loss.item()
+            if (batch_idx + 1) % 10 == 0:
+                print(f"Epoch {epoch+1}, Batch {batch_idx+1}, Loss: {loss.item():.4f}")
+        print(f"Epoch [{epoch+1}/{num_epochs}], Avg Loss: {epoch_loss/len(dataloader):.4f}")
 
 
 if __name__ == "__main__":
     main()
-         
-
 
