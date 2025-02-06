@@ -1,5 +1,5 @@
 
-# 训练CNN模型 -3 
+# 训练CNN模型 -4
 import os
 import cv2
 import numpy as np
@@ -17,17 +17,11 @@ TARGET_SIZE = (240, 240)  # 根据需求调整
 # 之前使用的是cv2的归一化，不可以用。
 Transform_IC = transforms.Compose([
     transforms.ToPILImage(),   # OpenCV → PIL（自动 BGR→RGB）
-    transforms.Resize(TARGET_SIZE),  # 调整尺寸（保持比例）
+    transforms.Resize(TARGET_SIZE, interpolation=Image.NEAREST),  # 最近邻插值
     transforms.CenterCrop(TARGET_SIZE),  # 中心裁剪（可选）
     transforms.ToTensor(),     # 归一化到 [0,1]，并转换为 Tensor 张量 
 ])
-# 单独定义分割标签的转换
-Transform_SEG = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize(TARGET_SIZE, interpolation=Image.NEAREST),  # 最近邻插值
-    transforms.CenterCrop(TARGET_SIZE),
-    transforms.ToTensor(),
-])
+
 
 def visualize_images(fla_images, seg_images):
     """
@@ -47,11 +41,10 @@ def visualize_images(fla_images, seg_images):
     plt.show()
 
 class TumorDataSet(Dataset):
-    def __init__(self, fla_dir, seg_dir, fla_transform=Transform_IC, seg_transform=Transform_SEG):
+    def __init__(self, fla_dir, seg_dir, fla_transform=Transform_IC):
         self.fla_dir = fla_dir
         self.seg_dir = seg_dir
         self.fla_transform = fla_transform
-        self.seg_transform = seg_transform
         # 按数字排序病人文件夹
         self.folder_ids = sorted(
             [f for f in os.listdir(fla_dir) if f.isdigit()],
@@ -82,7 +75,7 @@ class TumorDataSet(Dataset):
             # 处理 SEG 标签
             seg_img = cv2.imread(os.path.join(seg_path, seg_name), cv2.IMREAD_GRAYSCALE)
             seg_img = (seg_img > 127).astype(np.uint8)  # 二值化
-            seg_img = self.seg_transform(seg_img)
+            seg_img = self.fla_transform(seg_img)
             seg_images.append(seg_img)
 
         return torch.stack(fla_images), torch.stack(seg_images)
@@ -116,16 +109,18 @@ class UnetCNN(nn.Module):
         return x
 
 def main():
+    model_save_path = "./model"
+    os.makedirs(model_save_path, exist_ok=True) # 创建模型保存目录
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     # 初始化数据集和数据加载器
     dataset = TumorDataSet(fla_dir="./train_data/fla", seg_dir="./train_data/seg")
     # 检查第一个样本
-    fla, seg = dataset[0]
-    print("FLA 图像尺寸:", fla.shape)  # 应为 [3, 3, 240, 240]
-    print("SEG 标签尺寸:", seg.shape)  # 应为 [3, 1, 240, 240]
-
+    # fla, seg = dataset[0]
+    # print("FLA 图像尺寸:", fla.shape)  # 应为 [3, 3, 240, 240]
+    # print("SEG 标签尺寸:", seg.shape)  # 应为 [3, 1, 240, 240]
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
 
     # 初始化模型
@@ -138,18 +133,24 @@ def main():
     for epoch in range(num_epochs):
         model.train()
         epoch_loss = 0.0
+        # fla 输入数据 seg 标签数据
         for batch_idx, (fla_batch, seg_batch) in enumerate(dataloader):
             # 数据处理、模型前向传播和反向传播
-            optimizer.zero_grad()
-            outputs = model(fla_batch.view(-1, *fla_batch.shape[2:]).to(device))
-            loss = criterion(outputs, seg_batch.view(-1, *seg_batch.shape[2:]).to(device))
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad() # 梯度归零
+            outputs = model(fla_batch.view(-1, *fla_batch.shape[2:]).to(device)) # 前向传播
+            loss = criterion(outputs, seg_batch.view(-1, *seg_batch.shape[2:]).to(device)) # 损失函数
+            loss.backward() # 反向传播
+            optimizer.step() # ?更新参数
             epoch_loss += loss.item()
             if (batch_idx + 1) % 10 == 0:
                 print(f"Epoch {epoch+1}, Batch {batch_idx+1}, Loss: {loss.item():.4f}")
         print(f"Epoch [{epoch+1}/{num_epochs}], Avg Loss: {epoch_loss/len(dataloader):.4f}")
 
+
+
+    # 保存模型
+    torch.save(model,model_save_path+"/model.pth") 
+    print("模型已保存！")
 
 if __name__ == "__main__":
     main()
