@@ -94,7 +94,8 @@
 # print("预测完成！")
 import os
 import torch
-from TrainModels_4 import UnetCNN
+# from TrainModels_4 import UnetCNN
+from t_4_test import UnetCNN
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -117,7 +118,9 @@ def postprocess_mask(prob_map, threshold=0.5):
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     return mask, contours
 
-model = torch.load(os.path.join(model_save_path, "model.pth"),weights_only=False)
+model = UnetCNN(in_channels=3, out_channels=1)  
+state_dict = torch.load(os.path.join(model_save_path, "model.pth"),weights_only=False)
+model.load_state_dict(state_dict)  # 加载权重   
 model.eval()
 
 for folder in sorted(os.listdir(input_root)):
@@ -153,7 +156,7 @@ for folder in sorted(os.listdir(input_root)):
         plt.imshow(prob_map, cmap="gray")
         plt.title("Probability Map")
         plt.show()
-        
+
         mask, contours = postprocess_mask(prob_map)
 
         orig_img = cv2.imread(os.path.join(folder_path, img_file))
