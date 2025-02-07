@@ -19,7 +19,7 @@ TARGET_SIZE = (240, 240)  # 目标图像尺寸
 NUM_EPOCHS = 20           # 训练轮数
 BATCH_SIZE = 8            # 每批数据大小
 LEARNING_RATE = 1e-3      # 初始学习率
-KERNEL_SIZE = 3           # 卷积核大小
+KERNEL_SIZE = 3          # 卷积核大小
 # ---------------------
 # 2. 数据增强/预处理 COMPOSE流水线
 # ---------------------
@@ -115,7 +115,7 @@ class DoubleConv(nn.Module):
         super(DoubleConv, self).__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, KERNEL_SIZE, padding=1),
-            nn.BatchNorm2d(out_channels),
+            nn.BatchNorm2d(out_channels), # 归一化
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, KERNEL_SIZE, padding=1),
             nn.BatchNorm2d(out_channels),
@@ -141,7 +141,7 @@ class UNet(nn.Module):
         # bottleneck
         self.bottleneck = DoubleConv(512, 1024)
 
-        # 解码器
+        # 解码器（逆卷积）
         self.up4 = nn.ConvTranspose2d(1024, 512, kernel_size=2, stride=2)
         self.conv4 = DoubleConv(1024, 512)
 
@@ -158,25 +158,25 @@ class UNet(nn.Module):
 
     def forward(self, x):
         # 编码
-        d1 = self.down1(x)  # [B,64,H,W]
-        p1 = self.maxpool(d1)
+        d1 = self.down1(x)  # [B,64,H,W] inchannel=3 -> outchannel=64
+        p1 = self.maxpool(d1) # (2,2) stride = 2
 
-        d2 = self.down2(p1) # [B,128,H/2,W/2]
-        p2 = self.maxpool(d2)
+        d2 = self.down2(p1) # [B,128,H/2,W/2] 64 -> 128
+        p2 = self.maxpool(d2) 
 
-        d3 = self.down3(p2) # [B,256,H/4,W/4]
+        d3 = self.down3(p2) # [B,256,H/4,W/4] 128 -> 256
         p3 = self.maxpool(d3)
 
-        d4 = self.down4(p3) # [B,512,H/8,W/8]
+        d4 = self.down4(p3) # [B,512,H/8,W/8] 256 -> 512
         p4 = self.maxpool(d4)
 
         # 中间层
-        bn = self.bottleneck(p4) # [B,1024,H/16,W/16]
+        bn = self.bottleneck(p4) # [B,1024,H/16,W/16] 512 -> 1024
 
         # 解码
-        up_4 = self.up4(bn)                   # [B,512,H/8,W/8]
-        cat_4 = torch.cat([up_4, d4], dim=1)  # skip connection
-        c4 = self.conv4(cat_4)                # [B,512,H/8,W/8]
+        up_4 = self.up4(bn)                   # [B,512,H/8,W/8] 1024 -> 512
+        cat_4 = torch.cat([up_4, d4], dim=1)  # skip connection# 跳跃连接,保留了一些低层特征
+        c4 = self.conv4(cat_4)                # [B,512,H/8,W/8] 
 
         up_3 = self.up3(c4)                   # [B,256,H/4,W/4]
         cat_3 = torch.cat([up_3, d3], dim=1)
