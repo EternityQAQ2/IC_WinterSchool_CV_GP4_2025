@@ -17,16 +17,16 @@ import matplotlib.pyplot as plt
 # ---------------------
 TARGET_SIZE = (240, 240)  # 目标图像尺寸
 NUM_EPOCHS = 20           # 训练轮数
-BATCH_SIZE = 4            # 每批数据大小
+BATCH_SIZE = 8            # 每批数据大小
 LEARNING_RATE = 1e-3      # 初始学习率
-
+KERNEL_SIZE = 3           # 卷积核大小
 # ---------------------
-# 2. 数据增强/预处理
+# 2. 数据增强/预处理 COMPOSE流水线
 # ---------------------
 train_transform = A.Compose([
-    A.Rotate(limit=30, p=0.5),
-    A.HorizontalFlip(p=0.5),
-    A.RandomBrightnessContrast(p=0.2),
+    A.Rotate(limit=30, p=0.5), # 旋转？是否有必要？
+    A.HorizontalFlip(p=0.5), # 水平翻转？是否有必要？
+    A.RandomBrightnessContrast(p=0.2), # 提高亮度对比度
     A.Normalize(mean=[0.485, 0.456, 0.406],  # 常用ImageNet统计值
                 std=[0.229, 0.224, 0.225]),
     ToTensorV2()  # 转换为Tensor，通道顺序为 [C, H, W]
@@ -40,12 +40,12 @@ val_transform = A.Compose([
 ])
 
 # ---------------------
-# 3. 自定义数据集
+# 3. 自定义数据集 获取图像信息的输入信息的
 # ---------------------
 class TumorDataSet(Dataset):
     """
     将所有文件夹下的所有切片展开到同一个列表中，
-    保证取出单张切片(fla, seg)，满足2D卷积输入要求 [C,H,W]。
+    保证取出单张切片(fla, seg)，满足2D卷积输入要求 [C,H,W]。通道，高，宽。
     """
     def __init__(self, fla_dir, seg_dir, transform=None):
         super(TumorDataSet, self).__init__()
@@ -53,13 +53,14 @@ class TumorDataSet(Dataset):
         self.seg_dir = seg_dir
         self.transform = transform
 
-        # 收集所有 (fla_path, seg_path) 对
+        # 收集所有 (fla_path, seg_path) 对(地址对)
         self.fla_seg_pairs = []
         # 仅匹配纯数字命名的文件夹：1, 2, 3, ...
         folder_ids = sorted(
             [f for f in os.listdir(fla_dir) if f.isdigit()],
             key=lambda x: int(x)
         )
+        # folder_id : 1, 2, 3, ...
         for folder_id in folder_ids:
             fla_path = os.path.join(fla_dir, folder_id)
             seg_path = os.path.join(seg_dir, folder_id)
@@ -69,7 +70,7 @@ class TumorDataSet(Dataset):
                 continue
 
             # 切片文件名列表
-            fla_files = sorted(os.listdir(fla_path))
+            fla_files = sorted(os.listdir(fla_path)) # fla_1.png, fla_2.png, ...
             seg_files = sorted(os.listdir(seg_path))
 
             for f_name, s_name in zip(fla_files, seg_files):
@@ -91,7 +92,7 @@ class TumorDataSet(Dataset):
         if fla_img is None or seg_img is None:
             raise ValueError(f"Fail to load image/mask: {fla_img_path}, {seg_img_path}")
 
-        # 二值化：将原本的mask(0~255)转换成(0,1)
+        # 二值化：将原本的mask(0~255)转换成(0,1) 1代表肿瘤位置，0代表背景
         seg_img = (seg_img > 127).astype(np.uint8)
 
         # 调整图像尺寸到目标尺寸
@@ -113,10 +114,10 @@ class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(DoubleConv, self).__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.Conv2d(in_channels, out_channels, KERNEL_SIZE, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.Conv2d(out_channels, out_channels, KERNEL_SIZE, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
